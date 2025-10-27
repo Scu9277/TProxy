@@ -134,7 +134,8 @@ Wants=network-online.target docker.service
 [Service]
 Type=oneshot
 # 修复：移除 sleep 10，依赖 After=docker.service 更可靠
-ExecStart=/etc/tproxy/tproxy.sh
+#ExecStart=/etc/tproxy/tproxy.sh
+ExecStart=/bin/bash -c 'sleep 30 && /etc/tproxy/tproxy.sh'
 RemainAfterExit=yes
 StandardOutput=journal+console
 
