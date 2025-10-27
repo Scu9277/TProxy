@@ -3,7 +3,7 @@ echo "=============================================="
 echo " 🚀 Mihomo TProxy 一键透明代理部署脚本"
 echo " 支持: Debian 12+ / Ubuntu 22.04+"
 echo " 作者: Duang x Scu   联系: shangkouyou@gmail.com"
-echo " (已修改: 增加 9277 端口豁免)"
+echo " (已修复: 增加 9277 端口豁免 + 兼容 Docker NAT 规则)"
 echo "=============================================="
 set -e
 
@@ -67,10 +67,9 @@ fi
 MAIN_IP=$(ip -4 addr show "$MAIN_IF" | grep inet | awk '{print $2}' | cut -d/ -f1 | head -n1)
 echo "[$(date '+%F %T')] 检测到主网卡: $MAIN_IF ($MAIN_IP)" >> "$LOG_FILE"
 
+# --- Mangle 表清理 ---
 iptables -t mangle -F 2>/dev/null
 iptables -t mangle -X MIHOMO 2>/dev/null
-iptables -t nat -F PREROUTING 2>/dev/null
-
 iptables -t mangle -N MIHOMO 2>/dev/null && echo "创建MIHOMO链成功" >> "$LOG_FILE"
 
 # --- 豁免规则 (局域网/本机) ---
@@ -78,10 +77,10 @@ iptables -t mangle -A MIHOMO -d 10.0.0.0/8 -j RETURN
 iptables -t mangle -A MIHOMO -d 192.168.0.0/16 -j RETURN
 iptables -t mangle -A MIHOMO -d 127.0.0.0/8 -j RETURN
 
-# --- 🆕 新增：豁免 Sub-Store (Docker) 的 9277 端口 ---
-# 必须在 TPROXY 规则之前
+# --- 关键：豁免 Sub-Store (Docker) 的 9277 端口 ---
+# (此规则必须保留，否则 TProxy 会劫持流量)
 iptables -t mangle -A MIHOMO -p tcp --dport 9277 -j RETURN
-echo "[$(date '+%F %T')] 豁免 TCP 9277 端口 (Sub-Store)" >> "$LOG_FILE"
+echo "[$(date '+%F %T')] (Mangle) 豁免 TCP 9277 端口 (Sub-Store)" >> "$LOG_FILE"
 
 # --- TProxy 转发规则 ---
 iptables -t mangle -A MIHOMO -p tcp -j TPROXY --on-port 9420 --tproxy-mark 0x2333
@@ -90,8 +89,14 @@ iptables -t mangle -A MIHOMO -p udp -j TPROXY --on-port 9420 --tproxy-mark 0x233
 # --- 应用 MIHOMO 链 ---
 iptables -t mangle -A PREROUTING -j MIHOMO
 
-# --- DNS 转发 ---
-iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 53
+# --- 关键：安全地添加 DNS 转发规则 (不清除 Docker 规则) ---
+DNS_RULE_EXISTS=$(iptables -t nat -C PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 53 &>/dev/null; echo $?)
+if [ "$DNS_RULE_EXISTS" -ne 0 ]; then
+    iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 53
+    echo "[$(date '+%F %T')] (Nat) 添加 DNS 转发规则" >> "$LOG_FILE"
+else
+    echo "[$(date '+%F %T')] (Nat) DNS 转发规则已存在，跳过。" >> "$LOG_FILE"
+fi
 
 # --- 策略路由 ---
 ip rule add fwmark 0x2333 table 100 2>/dev/null
@@ -100,7 +105,7 @@ ip route add local default dev lo table 100 2>/dev/null
 echo "[$(date '+%F %T')] 规则加载完成" >> "$LOG_FILE"
 EOF
 chmod +x /etc/tproxy/tproxy.sh
-log_ok "规则脚本已生成 (已包含9277豁免)"
+log_ok "规则脚本已生成 (已包含9277豁免 和 NAT修复)"
 
 # ---------- 写入 sysctl ----------
 log_step "写入系统内核优化配置"
@@ -122,12 +127,14 @@ log_step "创建 systemd 服务"
 cat > /etc/systemd/system/tproxy-rules.service << 'EOF'
 [Unit]
 Description=TProxy Rules Auto-Load Service
-After=network-online.target
-Wants=network-online.target
+# 关键：确保在 Docker 之后启动，以便 Docker 先设置好 NAT 规则
+After=network-online.target docker.service
+Wants=network-online.target docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'sleep 10 && /etc/tproxy/tproxy.sh'
+# 修复：移除 sleep 10，依赖 After=docker.service 更可靠
+ExecStart=/etc/tproxy/tproxy.sh
 RemainAfterExit=yes
 StandardOutput=journal+console
 
@@ -139,9 +146,13 @@ systemctl enable tproxy-rules.service >/dev/null
 log_ok "服务已创建并启用"
 
 # ---------- 重启服务并立即加载 ----------
-log_step "重启服务并立即加载新规则"
+log_step "重启 Docker (确保 NAT 规则) 并加载 TProxy 规则"
+# (为确保万无一失，最好重启 Docker)
+systemctl restart docker.service
+log_ok "Docker 重启完毕"
+sleep 3
 systemctl restart tproxy-rules.service
-/etc/tproxy/tproxy.sh && log_ok "规则已加载完成"
+/etc/tproxy/tproxy.sh && log_ok "TProxy 规则已加载完成"
 
 # ---------- 最后提示 ----------
 echo "=========================================="
@@ -150,5 +161,5 @@ echo "规则脚本: /etc/tproxy/tproxy.sh"
 echo "服务名称: tproxy-rules"
 echo "查看日志: tail -f /var/log/tproxy-rules.log"
 echo "验证规则: iptables -t mangle -L MIHOMO -n"
-echo " (请检查 9277 端口的规则是否在 TPROXY 之前)"
+echo " (请检查 9277 端口的 RETURN 规则)"
 echo "=========================================="
