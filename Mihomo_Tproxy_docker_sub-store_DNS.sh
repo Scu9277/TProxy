@@ -9,7 +9,7 @@
 #   Mihomo (MetaCubeX) + Docker + Sub-Store + TProxy + DNS 劫持
 #   全自动安装脚本 (V8 - 修复验证逻辑)
 #
-#   作者: Scu 联合x Duang
+#   作者: Scu x Duang
 #   邮箱: shangkouyou@gmail.com
 #   微信: shangkouyou
 #
@@ -59,7 +59,7 @@ show_author_info() {
     echo "     Mihomo (MetaCubeX) + Docker + Sub-Store + TProxy + DNS 劫持 (V8)"
     echo "================================================================"
     echo -e "${NC}"
-    echo -e "👋 嗨！我是 ${GREEN}Scu 联合x Duang${NC}"
+    echo -e "👋 嗨！我是 ${GREEN}Scu x Duang${NC}"
     echo -e "📧 邮箱: ${YELLOW}shangkouyou@gmail.com${NC}"
     echo -e "💬 微信: ${YELLOW}shangkouyou${NC}"
     echo ""
