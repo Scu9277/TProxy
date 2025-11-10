@@ -2,7 +2,7 @@
   "providers": [
     {
       "type": "remote",
-      "tag": "QCY",
+      "tag": "WeChat:shangkouyou",
       "health_check": {
           "enabled": false,
           "url": "http://www.apple.com/library/test/success.html",
