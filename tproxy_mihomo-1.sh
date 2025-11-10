@@ -77,6 +77,9 @@ iptables -t mangle -A MIHOMO -d 10.0.0.0/8 -j RETURN
 iptables -t mangle -A MIHOMO -d 192.168.0.0/16 -j RETURN
 iptables -t mangle -A MIHOMO -d 127.0.0.0/8 -j RETURN
 
+#sing-box修复
+iptables -t mangle -I PREROUTING 1 -p udp -d 255.255.255.255 --dport 5678 -j RETURN
+
 # --- 豁免本机访问 Sub-Store (Docker) 的 9277 端口 ---
 iptables -t mangle -I OUTPUT 1 -p tcp --dport 9277 -j ACCEPT
 echo "[$(date '+%F %T')] (Mangle OUTPUT) 豁免本机访问 TCP 9277 端口" >> "$LOG_FILE"
