@@ -9,7 +9,7 @@
           "interval": "10m",
           "timeout": "3s"
       },
-      "url": "http://127.0.0.1:9277/21DEDINGZHI/download/collection/Scu?target=sing-box",
+      "url": "http://127.0.0.1:9277/21dedingzhi/download/collection/Scu?target=sing-box",
       "exclude": "官网|剩余|流量|套餐|免费|订阅|全球直连|到期时间|GB|Expire Date|Traffic|ExpireDate",
       "download_detour": "🎯 全球直连",
       "update_interval": "12h"
