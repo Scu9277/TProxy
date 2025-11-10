@@ -72,6 +72,9 @@ iptables -t mangle -F 2>/dev/null
 iptables -t mangle -X MIHOMO 2>/dev/null
 iptables -t mangle -N MIHOMO 2>/dev/null && echo "创建MIHOMO链成功" >> "$LOG_FILE"
 
+#修复
+iptables -t mangle -I PREROUTING 1 -d 255.255.255.255 -j RETURN
+
 # --- 豁免规则 (局域网/本机) ---
 iptables -t mangle -A MIHOMO -d 10.0.0.0/8 -j RETURN
 iptables -t mangle -A MIHOMO -d 192.168.0.0/16 -j RETURN
