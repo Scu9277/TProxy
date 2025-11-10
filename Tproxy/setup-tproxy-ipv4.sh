@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==========================================
-# 🧠 Sing-box IPv4 TProxy 一键配置脚本（链名: TPROXY）
+# 🧠 Sing-box IPv4 TProxy 一键配置脚本
 # 作者：shangkouyou
-# (由 Scu 修复 - 仅网关/旁路由模式)
+# (由 Gemini 修复 V3 - 修复 TPROXY 链名称冲突)
 # ==========================================
 
 set -e
@@ -14,6 +14,9 @@ TPROXY_PORT=9420
 TPROXY_MARK=0x2333
 TABLE_ID=100
 DOCKER_PORT=9277
+
+# !! 修复点：定义一个不与内核目标冲突的自定义链名称
+CUSTOM_CHAIN="TPROXY_CHAIN"
 
 echo "[$(date '+%F %T')] 🚀 开始配置 IPv4 TProxy 环境 (仅网关模式)..." | tee -a "$LOG_FILE"
 
@@ -55,14 +58,17 @@ else
 fi
 
 # ---- 切换到 iptables-legacy (若存在) ----
-if iptables --version 2>&1 | grep -q "nf_tables"; then
+# Debian 13 (Trixie) 默认使用 nftables，TProxy 必须用 legacy
+if command -v update-alternatives >/dev/null 2>&1; then
   if command -v iptables-legacy >/dev/null 2>&1; then
     update-alternatives --set iptables /usr/sbin/iptables-legacy || true
     update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
-    echo "[$(date '+%F %T')] 🔁 已切换到 iptables-legacy 模式" | tee -a "$LOG_FILE"
+    echo "[$(date '+%F %T')] 🔁 已强制切换到 iptables-legacy 模式" | tee -a "$LOG_FILE"
   else
-    echo "[$(date '+%F %T')] ⚠️ 当前为 nftables 模式，将尝试兼容执行" | tee -a "$LOG_FILE"
+     echo "[$(date '+%F %T')] ⚠️ 未找到 iptables-legacy，TProxy 可能会失败" | tee -a "$LOG_FILE"
   fi
+else
+    echo "[$(date '+%F %T')] ⚠️ 非 Debian/Ubuntu 系统，请手动确保使用 iptables-legacy" | tee -a "$LOG_FILE"
 fi
 
 # ---- 加载内核模块 ----
@@ -80,14 +86,15 @@ echo "[$(date '+%F %T')] 🔧 已启用 IPv4 转发" | tee -a "$LOG_FILE"
 cat > "$TPROXY_SCRIPT" <<EOF
 #!/bin/bash
 # IPv4-only TProxy for sing-box (Gateway/PREROUTING Only)
-# ** 修复 Shebang 和 TPROXY 链名称 **
+# ** 修复：使用 $CUSTOM_CHAIN 代替 TPROXY 作为链名称 **
 LOG_FILE="/var/log/tproxy.log"
 TPROXY_PORT=$TPROXY_PORT
 TPROXY_MARK=$TPROXY_MARK
 TABLE_ID=$TABLE_ID
 DOCKER_PORT=$DOCKER_PORT
+CHAIN_NAME="$CUSTOM_CHAIN"
 
-echo "[$(date '+%F %T')] 开始加载 IPv4 TProxy 规则 (仅网关模式)..." | tee -a "\$LOG_FILE"
+echo "[$(date '+%F %T')] 开始加载 IPv4 TProxy 规则 (链: \$CHAIN_NAME)..." | tee -a "\$LOG_FILE"
 
 MAIN_IF=\$(ip -4 route show default | grep -oP '(?<=dev )\\S+' | head -n1)
 MAIN_IP=\$(ip -4 addr show "\$MAIN_IF" | grep inet | awk '{print \$2}' | cut -d/ -f1 | head -n1)
@@ -95,42 +102,41 @@ echo "检测到主网卡: \$MAIN_IF (\$MAIN_IP)" | tee -a "\$LOG_FILE"
 
 # ---- 安全清理旧规则 ----
 # 清理跳转规则
-iptables -t mangle -D PREROUTING -j TPROXY 2>/dev/null || true
+iptables -t mangle -D PREROUTING -j \$CHAIN_NAME 2>/dev/null || true
 # 清空并删除旧链
-iptables -t mangle -F TPROXY 2>/dev/null || true
-iptables -t mangle -X TPROXY 2>/dev/null || true
+iptables -t mangle -F \$CHAIN_NAME 2>/dev/null || true
+iptables -t mangle -X \$CHAIN_NAME 2>/dev/null || true
 # 清理策略路由
 ip rule del fwmark \$TPROXY_MARK table \$TABLE_ID 2>/dev/null || true
 ip route flush table \$TABLE_ID 2>/dev/null || true
 
 # ---- 创建新链 ----
-iptables -t mangle -N TPROXY
+iptables -t mangle -N \$CHAIN_NAME
 
 # ---- 规则详情 ----
 
 # 1. 豁免本地、局域网、Docker 订阅端口 9277
 for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 255.255.255.255; do
-  iptables -t mangle -A TPROXY -d \$net -j RETURN
+  iptables -t mangle -A \$CHAIN_NAME -d \$net -j RETURN
 done
 # 豁免服务器本身的 IP，防止来自局域网的回环
-iptables -t mangle -A TPROXY -d \$MAIN_IP -j RETURN
+iptables -t mangle -A \$CHAIN_NAME -d \$MAIN_IP -j RETURN
 
-iptables -t mangle -A TPROXY -p tcp --dport \$DOCKER_PORT -j RETURN
-iptables -t mangle -A TPROXY -p udp --dport \$DOCKER_PORT -j RETURN
+iptables -t mangle -A \$CHAIN_NAME -p tcp --dport \$DOCKER_PORT -j RETURN
+iptables -t mangle -A \$CHAIN_NAME -p udp --dport \$DOCKER_PORT -j RETURN
 
-# 2. 添加 TProxy 转发
-iptables -t mangle -A TPROXY -p tcp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$TPROXY_MARK
-iptables -t mangle -A TPROXY -p udp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$TPROXY_MARK
+# 2. 添加 TProxy 转发 (!! 重点：-j TPROXY 是指内核的 *目标* !!)
+iptables -t mangle -A \$CHAIN_NAME -p tcp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$TPROXY_MARK
+iptables -t mangle -A \$CHAIN_NAME -p udp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$TPROXY_MARK
 
-# 3. Hook 链 (!! 重点：只 Hook PREROUTING !!)
-#    这只处理转发流量（网关模式），不处理本机流量
-iptables -t mangle -I PREROUTING -j TPROXY
+# 3. Hook 链 (!! 重点：跳转到我们的 *自定义链* !!)
+iptables -t mangle -I PREROUTING -j \$CHAIN_NAME
 
 # 4. 策略路由
 ip rule add fwmark \$TPROXY_MARK table \$TABLE_ID
 ip route add local default dev lo table \$TABLE_ID
 
-echo "[$(date '+%F %T')] ✅ IPv4 TProxy 规则加载完成 (仅网关模式)" | tee -a "\$LOG_FILE"
+echo "[$(date '+%F %T')] ✅ IPv4 TProxy 规则加载完成 (链: \$CHAIN_NAME)" | tee -a "\$LOG_FILE"
 EOF
 
 chmod +x "$TPROXY_SCRIPT"
@@ -168,11 +174,12 @@ fi
 # ---- 验证结果 ----
 echo "[$(date '+%F %T')] 🔍 当前 TProxy 状态:" | tee -a "$LOG_FILE"
 iptables -t mangle -L PREROUTING -v -n | tee -a "$LOG_FILE"
-iptables -t mangle -L TPROXY -v -n | tee -a "$LOG_FILE"
+# !! 修复点：验证我们正确的自定义链
+iptables -t mangle -L $CUSTOM_CHAIN -v -n | tee -a "$LOG_FILE"
 ip rule show | tee -a "$LOG_FILE"
 ip route show table 100 | tee -a "$LOG_FILE"
 
 echo "[$(date '+%F %T')] 🎉 IPv4 TProxy 已配置完成 (仅网关模式)！" | tee -a "$LOG_FILE"
 echo "日志文件: $LOG_FILE 和 /var/log/tproxy.log"
-echo "✅ 有任何问题都可以联系微信 shangkouyou。"
+echo "✅ 执行过程中遇到的任何问题都可以联系我。"
 echo "✅ 宿主机流量不会被代理。"
