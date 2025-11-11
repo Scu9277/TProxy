@@ -5,7 +5,7 @@
       "tag": "shangkouyou",
       "health_check": {
           "enabled": false,
-          "url": "https://www.gstatic.com/generate_204",
+          "url": "http://www.qualcomm.cn/generate_204",
           "interval": "10m",
           "timeout": "3s"
       },
@@ -36,6 +36,8 @@
     "reverse_mapping": true
   },
   "outbounds": [
+    {"tag": "🧸 21-LAN", "type": "selector", "outbounds": ["🎯 全球直连","♻️ 自动选择", "✨ 手动选择"]},
+    {"tag": "🏔️ 21-Proxy", "type": "selector", "outbounds": null,"use_all_providers": true, "exclude": "网站|流量|地址|剩余|过期|免费|时间|有效|Traffic|ExpireDate|GB|Expire Date"},
     {"tag": "🚀 默认代理", "type": "selector", "outbounds": ["♻️ 自动选择", "🇭🇰 香港手动", "🇯🇵 日本手动", "🇸🇬 狮城手动", "🇺🇲 美国手动", "🇪🇺 欧洲节点", "✨ 手动选择"]},
     {"tag": "🧠 AI", "type": "selector", "outbounds": ["🇺🇲 美国手动", "♻️ 自动选择","🇯🇵 日本手动", "🇸🇬 狮城手动"]},
     {"tag": "📹 YouTube", "type": "selector", "outbounds": ["♻️ 自动选择","🇭🇰 香港手动", "🇯🇵 日本手动", "🇸🇬 狮城手动", "🇺🇲 美国手动", "🇪🇺 欧洲节点", "✨ 手动选择"]},
@@ -87,9 +89,13 @@
       {"rule_set": "geoip-apple", "outbound": "🍏 Apple"},
       {"rule_set": "geoip-telegram", "outbound": "📲 Telegram"},
       {"rule_set": "geoip-netflix", "outbound": "🎥 Netflix"},
-      {"rule_set": "geoip-cn", "outbound": "🎯 全球直连"}
+      {"rule_set": "geoip-cn", "outbound": "🎯 全球直连"},
+      {"rule_set": "proxy-list", "outbound": "🏔️ 21-Proxy"},
+      {"rule_set": "lan-list", "outbound": "🧸 21-LAN"}
     ],
     "rule_set": [
+      {"tag": "proxy-list", "type": "remote", "format": "binary", "url": "https://ghfast.top/raw.githubusercontent.com/Scu9277/Rule-Providers/refs/heads/main/sing-box/proxy.srs", "download_detour": "🎯 全球直连"},
+      {"tag": "lan-list", "type": "remote", "format": "binary", "url": "https://ghfast.top/raw.githubusercontent.com/Scu9277/Rule-Providers/refs/heads/main/sing-box/lan.srs", "download_detour": "🎯 全球直连"},
       {"tag": "geosite-ai", "type": "remote", "format": "binary", "url": "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ai-!cn.srs", "download_detour": "🎯 全球直连"},
       {"tag": "geosite-youtube", "type": "remote", "format": "binary", "url": "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/youtube.srs", "download_detour": "🎯 全球直连"},
       {"tag": "geosite-google", "type": "remote", "format": "binary", "url": "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs", "download_detour": "🎯 全球直连"},
