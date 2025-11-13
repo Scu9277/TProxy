@@ -126,6 +126,7 @@ iptables -t mangle -A \$CHAIN_NAME -p tcp --dport \$DOCKER_PORT -j RETURN
 iptables -t mangle -A \$CHAIN_NAME -p udp --dport \$DOCKER_PORT -j RETURN
 
 # 2. 添加 TProxy 转发 (!! 重点：-j TPROXY 是指内核的 *目标* !!)
+iptables -t mangle -A \$CHAIN_NAME -p udp --dport 443 -j REJECT
 iptables -t mangle -A \$CHAIN_NAME -p tcp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$TPROXY_MARK
 iptables -t mangle -A \$CHAIN_NAME -p udp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$TPROXY_MARK
 
