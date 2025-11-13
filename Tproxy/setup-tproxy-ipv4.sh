@@ -151,6 +151,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+ExecStartPre=/bin/sleep 30
 ExecStart=$TPROXY_SCRIPT
 RemainAfterExit=yes
 
