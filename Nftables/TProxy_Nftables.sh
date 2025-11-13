@@ -1,15 +1,13 @@
 #!/bin/bash
 
 # =================================================================
-# Sing-box TProxy + Nftables 最终部署脚本 (v9)
+# Sing-box TProxy + Nftables 最终部署脚本 (v10)
 # 适配系统: Debian Trixie (内核限制版)
+# 修复: 解决了 /etc/iproute2/rt_tables 缺失导致的策略路由失败问题
 #
 # !! 重要 !!
-# 此脚本基于我们之前的调试，仅配置了 PREROUTING 钩子。
-# 这意味着:
-# ✅ 局域网其他设备可以被透明代理。
-# ❌ 宿主机本身 (OUTPUT) 无法被代理。
-# ❌ Docker 容器 (FORWARD) 无法被代理。
+# 此脚本仅配置 PREROUTING 钩子 (局域网代理)。
+# 宿主机 (OUTPUT) 和 Docker (FORWARD) 均不支持。
 # =================================================================
 
 # 检查是否为 root 用户
@@ -32,9 +30,7 @@ echo "---"
 # -----------------------------------------------------
 echo "⚙️ (2/8) 正在加载 conntrack 内核模块 (关键修复)..."
 # -----------------------------------------------------
-# 立即手动加载 conntrack 内核模块
 modprobe nf_conntrack
-# 创建一个配置文件，让系统在开机时自动加载此模块
 echo "nf_conntrack" > /etc/modules-load.d/singbox-tproxy.conf
 echo "✅ 内核模块 'nf_conntrack' 已加载并设为永久。"
 echo "---"
@@ -48,7 +44,6 @@ net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 EOF
 
-# 立即生效
 sysctl -p /etc/sysctl.d/99-singbox-tproxy.conf
 echo "✅ 内核转发已启用并设为永久。"
 echo "---"
@@ -56,7 +51,6 @@ echo "---"
 # -----------------------------------------------------
 echo "📝 (4/8) 正在写入 nftables 配置文件 (v9 - 仅 Prerouting)..."
 # -----------------------------------------------------
-# [注意] 这将覆盖 /etc/nftables.conf
 cat > /etc/nftables.conf << 'EOF'
 #!/usr/sbin/nft -f
 
@@ -98,61 +92,61 @@ table inet singbox {
     }
 
     # --- 1. PREROUTING 钩子 (v9: 纯粹的顺序逻辑) ---
-    # 这是唯一能在你的内核上运行的链
     chain tproxy-prerouting {
         type filter hook prerouting priority mangle; policy accept;
         
-        # 1. 豁免已建立的连接
         ct state { established, related } return
         
-        # 2. 豁免本地/DNS/NTP
         ip daddr @local_ipv4 return
         ip6 daddr @local_ipv6 return
         ip daddr @china_dns_ipv4 return
         ip6 daddr @china_dns_ipv6 return
         meta l4proto udp udp dport {123} return
         
-        # 3. 转发 TCP (新连接)
         meta l4proto tcp meta protocol ip meta mark set 1 tproxy ip to :9420 accept
         meta l4proto tcp meta protocol ip6 meta mark set 1 tproxy ip6 to :9420 accept
 
-        # 4. 转发 UDP (新连接)
         meta l4proto udp meta protocol ip meta mark set 1 tproxy ip to :9420 accept
         meta l4proto udp meta protocol ip6 meta mark set 1 tproxy ip6 to :9420 accept
     }
-
-    # --- OUTPUT 和 FORWARD 钩子均因内核不支持而移除 ---
 }
 EOF
 echo "✅ nftables 规则 (v9) 已写入。"
 echo "---"
 
 # -----------------------------------------------------
-echo "🛣️ (5/8) 正在创建 TProxy 策略路由脚本..."
+echo "🛣️ (5/8) 正在创建 TProxy 策略路由脚本 (v10-已修复)..."
 # -----------------------------------------------------
+# [已修正 v10] 
+# 1. 确保 /etc/iproute2/ 目录和 rt_tables 文件存在
+# 2. 放弃使用 "singbox" 别名, 全部改用数字 ID "100"
+#------------------------------------------------------
 cat > /usr/local/sbin/apply_tproxy_routing.sh << 'EOF_RULES'
 #!/bin/bash
-# TProxy 策略路由配置脚本
+# TProxy 策略路由配置脚本 (v10-修复版)
 
-# 1. 定义 TProxy 路由表 'singbox' (ID 100)
+# 1. (修复) 确保 rt_tables 文件存在, 以防万一
+mkdir -p /etc/iproute2/
+touch /etc/iproute2/rt_tables
+
+# 2. (修复) 检查别名, 如果不存在就添加 (虽然我们下面不用它)
 if ! grep -q "100 singbox" /etc/iproute2/rt_tables; then
   echo "100 singbox" >> /etc/iproute2/rt_tables
 fi
 
-# 2. 添加 IPv4 规则
-ip rule | grep -q "fwmark 1 lookup singbox" || ip rule add fwmark 1 lookup singbox
-ip route show table singbox | grep -q "local default dev lo" || ip route add local default dev lo table singbox
+# 3. (修复) 添加 IPv4 规则 (直接使用 ID 100)
+ip rule | grep -q "fwmark 1 lookup 100" || ip rule add fwmark 1 lookup 100
+ip route show table 100 | grep -q "local default dev lo" || ip route add local default dev lo table 100
 
-# 3. 添加 IPv6 规则
-ip -6 rule | grep -q "fwmark 1 lookup singbox" || ip -6 rule add fwmark 1 lookup singbox
-ip -6 route show table singbox | grep -q "local default dev lo" || ip -6 route add local default dev lo table 100
+# 4. (修复) 添加 IPv6 规则 (直接使用 ID 100)
+ip -6 rule | grep -q "fwmark 1 lookup 100" || ip -6 rule add fwmark 1 lookup 100
+ip -6 route show table 100 | grep -q "local default dev lo" || ip -6 route add local default dev lo table 100
 
-echo "✅ TProxy 策略路由已应用。"
+echo "✅ TProxy 策略路由 (v10) 已应用。"
 EOF_RULES
 
-# 赋予执行权限
 chmod +x /usr/local/sbin/apply_tproxy_routing.sh
-echo "✅ 策略路由脚本已创建。"
+echo "✅ 策略路由脚本 (v10) 已创建。"
 echo "---"
 
 # -----------------------------------------------------
@@ -169,9 +163,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# 关键：执行前延迟 30 秒，等待 sing-box 启动
 ExecStartPre=/bin/sleep 30
-# 执行我们的策略路由脚本
 ExecStart=/usr/local/sbin/apply_tproxy_routing.sh
 RemainAfterExit=true
 
@@ -185,24 +177,19 @@ echo "---"
 echo "🟢 (7/8) 正在启用并立即启动服务 (应用规则)..."
 # -----------------------------------------------------
 systemctl daemon-reload
-
-# 启用 nftables 服务 (开机加载 /etc/nftables.conf)
 systemctl enable nftables.service
-# 启用我们的 TProxy 路由服务 (开机 30s 后运行)
 systemctl enable singbox-tproxy-setup.service
 
-# 立即应用规则 (本次启动)
 echo "正在立即应用 nftables 规则..."
 systemctl restart nftables.service
 
-# 检查 nftables 是否成功
 if [ $? -ne 0 ]; then
     echo "❌ nftables 服务启动失败！"
     echo "请运行 'journalctl -xeu nftables.service' 再次检查日志。"
     exit 1
 fi
 
-echo "正在立即应用 TProxy 策略路由..."
+echo "正在立即应用 TProxy 策略路由 (v10)..."
 /usr/local/sbin/apply_tproxy_routing.sh
 echo "✅ 所有服务已启用并立即应用。"
 echo "---"
@@ -218,4 +205,4 @@ echo "  1. 宿主机本身 (OUTPUT 钩子不可用)"
 echo "  2. Docker 容器 (FORWARD 钩子不可用)"
 echo ""
 echo "下次重启时，系统将在启动 30 秒后自动应用局域网代理规则。"
-echo "请确保你的 TProxy 已经启动，并监端口。"
+echo "请确保你的 tproxy 已经启动，并监听 端口。"
