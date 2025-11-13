@@ -120,7 +120,7 @@ for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 255.255.255.255; 
   iptables -t mangle -A \$CHAIN_NAME -d \$net -j RETURN
 done
 # 豁免服务器本身的 IP，防止来自局域网的回环
-iptables -t mangle -A \$CHAIN_NAME -d \$MAIN_IP -j RETURN
+#iptables -t mangle -A \$CHAIN_NAME -d \$MAIN_IP -j RETURN
 
 iptables -t mangle -A \$CHAIN_NAME -p tcp --dport \$DOCKER_PORT -j RETURN
 iptables -t mangle -A \$CHAIN_NAME -p udp --dport \$DOCKER_PORT -j RETURN
