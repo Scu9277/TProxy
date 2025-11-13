@@ -1,14 +1,12 @@
 #!/bin/bash
 
 # =================================================================
-# Sing-box TProxy + Nftables 最终部署脚本 (v10)
+# Sing-box TProxy + Nftables 最终部署脚本 (v11)
 # 适配系统: Debian Trixie (内核限制版)
-# 修复: 解决了 /etc/iproute2/rt_tables 缺失导致的策略路由失败问题
-#
-# !! 重要 !!
-# 此脚本仅配置 PREROUTING 钩子 (局域网代理)。
-# 宿主机 (OUTPUT) 和 Docker (FORWARD) 均不支持。
-# =================================================================
+# 修复: 
+# 1. 路由脚本加入 set -e, 遇到错误立即停止
+# 2. 提前创建 rt_tables 文件, 避免 grep 报错
+# =D================================================================
 
 # 检查是否为 root 用户
 if [ "$(id -u)" -ne 0 ]; then
@@ -115,17 +113,20 @@ echo "✅ nftables 规则 (v9) 已写入。"
 echo "---"
 
 # -----------------------------------------------------
-echo "🛣️ (5/8) 正在创建 TProxy 策略路由脚本 (v10-已修复)..."
+echo "🛣️ (5/8) 正在创建 TProxy 策略路由脚本 (v11-严格模式)..."
 # -----------------------------------------------------
-# [已修正 v10] 
-# 1. 确保 /etc/iproute2/ 目录和 rt_tables 文件存在
-# 2. 放弃使用 "singbox" 别名, 全部改用数字 ID "100"
+# [已修正 v11] 
+# 1. 增加 set -e, 保证出错时立即退出
+# 2. 提前创建目录和文件
+# 3. 放弃 "singbox" 别名, 全部改用数字 ID "100"
 #------------------------------------------------------
 cat > /usr/local/sbin/apply_tproxy_routing.sh << 'EOF_RULES'
 #!/bin/bash
-# TProxy 策略路由配置脚本 (v10-修复版)
+# TProxy 策略路由配置脚本 (v11-严格模式)
+set -e
 
-# 1. (修复) 确保 rt_tables 文件存在, 以防万一
+echo "  -> 正在应用 IPv4 路由规则..."
+# 1. (修复) 确保 rt_tables 文件存在
 mkdir -p /etc/iproute2/
 touch /etc/iproute2/rt_tables
 
@@ -137,16 +138,19 @@ fi
 # 3. (修复) 添加 IPv4 规则 (直接使用 ID 100)
 ip rule | grep -q "fwmark 1 lookup 100" || ip rule add fwmark 1 lookup 100
 ip route show table 100 | grep -q "local default dev lo" || ip route add local default dev lo table 100
+echo "  -> IPv4 路由应用成功。"
 
+echo "  -> 正在应用 IPv6 路由规则..."
 # 4. (修复) 添加 IPv6 规则 (直接使用 ID 100)
 ip -6 rule | grep -q "fwmark 1 lookup 100" || ip -6 rule add fwmark 1 lookup 100
 ip -6 route show table 100 | grep -q "local default dev lo" || ip -6 route add local default dev lo table 100
+echo "  -> IPv6 路由应用成功。"
 
-echo "✅ TProxy 策略路由 (v10) 已应用。"
+echo "✅ TProxy 策略路由 (v11) 已应用。"
 EOF_RULES
 
 chmod +x /usr/local/sbin/apply_tproxy_routing.sh
-echo "✅ 策略路由脚本 (v10) 已创建。"
+echo "✅ 策略路由脚本 (v11) 已创建。"
 echo "---"
 
 # -----------------------------------------------------
@@ -189,8 +193,16 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo "正在立即应用 TProxy 策略路由 (v10)..."
+echo "正在立即应用 TProxy 策略路由 (v11)..."
 /usr/local/sbin/apply_tproxy_routing.sh
+
+if [ $? -ne 0 ]; then
+    echo "❌ TProxy 策略路由应用失败。"
+    echo "上面的 'Error: ipv4: FIB table does not exist.' 错误是致命的。"
+    echo "这表明你的系统内核缺少 IPv4 路由功能，TProxy 无法工作。"
+    exit 1
+fi
+
 echo "✅ 所有服务已启用并立即应用。"
 echo "---"
 
@@ -205,4 +217,4 @@ echo "  1. 宿主机本身 (OUTPUT 钩子不可用)"
 echo "  2. Docker 容器 (FORWARD 钩子不可用)"
 echo ""
 echo "下次重启时，系统将在启动 30 秒后自动应用局域网代理规则。"
-echo "请确保你的 tproxy 已经启动，并监听 端口。"
+echo "请确保你的 Tproxy 已经启动，并监听对应端口。"
